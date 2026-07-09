@@ -1,4 +1,4 @@
-name: Build LIORIS Website DIST
+name: Build LIORIS Website DIST Fixed
 
 on:
   workflow_dispatch:
@@ -14,45 +14,82 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Unzip LIORIS source
+      - name: Prepare source
         run: |
           rm -rf work lioris-dist.zip
-          mkdir work
-          unzip -q lioris-source.zip -d work
-          echo "Source extracted"
-          find work -maxdepth 3 -name package.json -print
+          mkdir -p work
+
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" ! -name "lioris-dist.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No source zip found. Please upload lioris-source.zip in repo root."
+            exit 1
+          fi
+
+          echo "Using zip: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d work
+
+          echo "Extracted files:"
+          find work -maxdepth 4 -type f | head -100
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Find project and build
+      - name: Find Vite project and build
+        shell: bash
         run: |
-          PROJECT_DIR=$(find work -name package.json -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          set -e
+
+          PACKAGE_JSON=$(find work -type f -name "package.json" -not -path "*/node_modules/*" | head -n 1)
+
+          if [ -z "$PACKAGE_JSON" ]; then
+            echo "package.json not found inside extracted zip"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PACKAGE_JSON")
+
+          echo "Package JSON: $PACKAGE_JSON"
           echo "Project dir: $PROJECT_DIR"
+
           cd "$PROJECT_DIR"
 
+          echo "Current directory:"
+          pwd
+
+          echo "Files:"
+          ls -la
+
           if [ -f package-lock.json ] && [ ! -s package-lock.json ]; then
-            echo "Empty package-lock found, removing"
+            echo "Empty package-lock.json found, removing"
             rm package-lock.json
           fi
 
-          npm install
+          npm install --legacy-peer-deps
           npm run build
 
-          echo '/* /index.html 200' > dist/_redirects
+          if [ ! -d dist ]; then
+            echo "dist folder not created"
+            exit 1
+          fi
+
+          echo "/* /index.html 200" > dist/_redirects
 
           cd dist
           zip -qr "$GITHUB_WORKSPACE/lioris-dist.zip" .
-          echo "DIST ZIP ready"
+
+          echo "Built dist zip:"
+          ls -lh "$GITHUB_WORKSPACE/lioris-dist.zip"
 
       - name: Commit dist zip to repo
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
           git add lioris-dist.zip
-          git commit -m "Build LIORIS website dist" || echo "No changes"
+          git commit -m "Build LIORIS website dist fixed" || echo "No changes to commit"
           git push
 
       - name: Upload dist artifact
