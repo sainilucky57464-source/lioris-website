@@ -1,0 +1,62 @@
+name: Build LIORIS Website DIST
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Unzip LIORIS source
+        run: |
+          rm -rf work lioris-dist.zip
+          mkdir work
+          unzip -q lioris-source.zip -d work
+          echo "Source extracted"
+          find work -maxdepth 3 -name package.json -print
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Find project and build
+        run: |
+          PROJECT_DIR=$(find work -name package.json -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          echo "Project dir: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+
+          if [ -f package-lock.json ] && [ ! -s package-lock.json ]; then
+            echo "Empty package-lock found, removing"
+            rm package-lock.json
+          fi
+
+          npm install
+          npm run build
+
+          echo '/* /index.html 200' > dist/_redirects
+
+          cd dist
+          zip -qr "$GITHUB_WORKSPACE/lioris-dist.zip" .
+          echo "DIST ZIP ready"
+
+      - name: Commit dist zip to repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add lioris-dist.zip
+          git commit -m "Build LIORIS website dist" || echo "No changes"
+          git push
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lioris-dist
+          path: lioris-dist.zip
